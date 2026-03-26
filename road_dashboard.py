@@ -1,10 +1,8 @@
-# road_dashboard.py - Road Damage Monitoring Dashboard
 import streamlit as st
 import cv2
 from PIL import Image
 import tempfile
 import os
-from datetime import datetime
 import numpy as np
 
 # Custom Road Damage Detector Class
