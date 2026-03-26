@@ -1,8 +1,6 @@
 import streamlit as st
 from PIL import Image
 import numpy as np
-import tempfile
-import os
 
 # Page config
 st.set_page_config(
@@ -33,7 +31,7 @@ with st.sidebar:
     st.caption("👩‍💻 Developed by: HEYZAARA")
     st.caption("📅 B.Tech AI & Data Science")
 
-# Function to detect damages using simple image processing
+# Function to detect damages using simple image processing (NO scipy)
 def detect_damages(image_array):
     """Simple damage detection using image analysis"""
     
@@ -47,9 +45,17 @@ def detect_damages(image_array):
     dark_threshold = 100
     dark_areas = gray < dark_threshold
     
-    # Find edges (potential cracks)
-    from scipy import ndimage
-    edges = np.abs(ndimage.sobel(gray))
+    # Simple edge detection using difference (no scipy)
+    # Create simple edge detection
+    h, w = gray.shape
+    edges = np.zeros_like(gray)
+    for i in range(1, h-1):
+        for j in range(1, w-1):
+            # Simple gradient
+            dx = abs(int(gray[i, j+1]) - int(gray[i, j-1]))
+            dy = abs(int(gray[i+1, j]) - int(gray[i-1, j]))
+            edges[i, j] = np.sqrt(dx*dx + dy*dy)
+    
     edge_threshold = 50
     edge_areas = edges > edge_threshold
     
