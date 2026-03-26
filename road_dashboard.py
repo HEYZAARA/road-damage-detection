@@ -1,9 +1,7 @@
-import streamlit as st
-import cv2
-from PIL import Image
-import tempfile
-import os
-import numpy as np
+streamlit
+opencv-python-headless
+pillow
+numpy
 
 # Custom Road Damage Detector Class
 class RoadDamageDetector:
