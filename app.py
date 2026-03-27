@@ -1,9 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Road Damage Detection & Smart Monitoring System
-All Features: Auto GPS, Object Detection, Database, Alerts, Video, Heatmap, PDF
-"""
-
+# app.py – Complete Road Damage Detection System
 import streamlit as st
 from PIL import Image, ExifTags
 import numpy as np
@@ -11,17 +6,18 @@ import pandas as pd
 from datetime import datetime
 import tempfile
 import os
-import cv2
 import requests
-import json
-import random
-from io import BytesIO
-import base64
 
 # ------------------------------------------------------------
-# Optional imports (install if needed)
+# Optional imports with graceful fallback
 try:
-    from supabase import create_client, Client
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+
+try:
+    from supabase import create_client
     SUPABASE_AVAILABLE = True
 except ImportError:
     SUPABASE_AVAILABLE = False
@@ -42,24 +38,23 @@ except ImportError:
     REPORTLAB_AVAILABLE = False
 
 # ------------------------------------------------------------
-# Configuration (Placeholders – replace with your actual keys)
+# Configuration (replace with your actual keys)
 SUPABASE_URL = "https://your-project.supabase.co"
 SUPABASE_KEY = "your-anon-key"
 TWILIO_ACCOUNT_SID = "your_account_sid"
 TWILIO_AUTH_TOKEN = "your_auth_token"
 TWILIO_FROM_NUMBER = "+1234567890"
-ALERT_TO_NUMBER = "+919876543210"   # recipient's phone number
+ALERT_TO_NUMBER = "+919876543210"
 EMAIL_FROM = "your_email@gmail.com"
 EMAIL_TO = "municipal@example.com"
-EMAIL_PASSWORD = "your_app_password"  # Use app-specific password for Gmail
+EMAIL_PASSWORD = "your_app_password"
 
 # ------------------------------------------------------------
 # Page config
 st.set_page_config(
     page_title="Road Damage Detection System",
     page_icon="🚗",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
 # Custom CSS
@@ -107,19 +102,16 @@ st.markdown("""
 st.markdown('<div class="main-header"><h1>🚗 AI-Driven Road Damage Detection & Smart Monitoring</h1><p>Auto GPS | Alerts | Heatmap | Video | Reports</p></div>', unsafe_allow_html=True)
 
 # ------------------------------------------------------------
-# Session state initialization
+# Session state
 if 'detection_history' not in st.session_state:
     st.session_state.detection_history = []
-
 if 'damage_status' not in st.session_state:
     st.session_state.damage_status = {}
-
 if 'db_connected' not in st.session_state:
     st.session_state.db_connected = False
 
 # ------------------------------------------------------------
-# Helper Functions
-
+# Helper functions
 def get_gps_from_image(image):
     """Extract GPS coordinates from image EXIF."""
     try:
@@ -133,8 +125,8 @@ def get_gps_from_image(image):
                         gps_tag_name = ExifTags.GPSTAGS.get(gps_tag, gps_tag)
                         gps_data[gps_tag_name] = value[gps_tag]
 
-                    def convert_to_degrees(value):
-                        d, m, s = value
+                    def convert_to_degrees(val):
+                        d, m, s = val
                         return d + (m / 60.0) + (s / 3600.0)
 
                     lat = convert_to_degrees(gps_data.get('GPSLatitude', [0,0,0]))
@@ -145,12 +137,12 @@ def get_gps_from_image(image):
                     if gps_data.get('GPSLongitudeRef') == 'W':
                         lon = -lon
                     return lat, lon
-    except Exception:
+    except:
         pass
     return None, None
 
 def get_location_name(lat, lon):
-    """Reverse geocode to get address (using OpenStreetMap)."""
+    """Reverse geocode using OpenStreetMap."""
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
         response = requests.get(url, headers={'User-Agent': 'RoadDamageDetector'})
@@ -164,7 +156,7 @@ def save_to_supabase(damage_data):
     if not SUPABASE_AVAILABLE:
         return False
     try:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         supabase.table('damages').insert(damage_data).execute()
         st.session_state.db_connected = True
         return True
@@ -221,7 +213,6 @@ def generate_pdf_report(damages, location, image_info):
         styles = getSampleStyleSheet()
         story = []
 
-        # Title
         story.append(Paragraph("Road Damage Detection Report", styles['Title']))
         story.append(Spacer(1, 12))
         story.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
@@ -229,7 +220,6 @@ def generate_pdf_report(damages, location, image_info):
         story.append(Paragraph(f"Image: {image_info}", styles['Normal']))
         story.append(Spacer(1, 12))
 
-        # Table of damages
         data = [['Damage Type', 'Confidence', 'Severity', 'Action']]
         for d in damages:
             data.append([d['type'].upper(), f"{d['confidence']:.1%}", d['severity'], d.get('action', 'Repair')])
@@ -248,7 +238,7 @@ def generate_pdf_report(damages, location, image_info):
         doc.build(story)
         return filename
     except Exception as e:
-        st.warning(f"PDF generation error: {e}")
+        st.warning(f"PDF error: {e}")
         return None
 
 def detect_general_objects(image_array):
@@ -263,7 +253,7 @@ def detect_general_objects(image_array):
         gray = image_array
         r_mean = g_mean = b_mean = np.mean(gray)
 
-    # Vehicle detection (medium brightness, rectangular shape)
+    # Vehicle detection
     if 100 < np.mean(gray) < 180:
         objects.append({'type': 'vehicle', 'confidence': 0.75, 'icon': '🚗'})
 
@@ -275,7 +265,7 @@ def detect_general_objects(image_array):
     if len(image_array.shape) == 3 and b_mean > r_mean and b_mean > g_mean:
         objects.append({'type': 'sky', 'confidence': 0.85, 'icon': '☁️'})
 
-    # Person detection (small dark area, but we'll approximate)
+    # Person detection (small dark area)
     h, w = gray.shape
     dark_threshold = 80
     dark_areas = gray < dark_threshold
@@ -283,7 +273,7 @@ def detect_general_objects(image_array):
     if 0.02 < dark_percentage < 0.08:
         objects.append({'type': 'person', 'confidence': 0.65, 'icon': '👤'})
 
-    return objects[:3]  # limit to 3
+    return objects[:3]
 
 def detect_damages_accurate(image_array, threshold=0.6):
     """Accurate damage detection (pothole, crack) with severity."""
@@ -296,7 +286,7 @@ def detect_damages_accurate(image_array, threshold=0.6):
     total_pixels = gray.size
     brightness = np.mean(gray)
 
-    # Dark areas (potential potholes)
+    # Dark areas (potholes)
     dark_threshold = 80
     dark_areas = gray < dark_threshold
     dark_count = np.sum(dark_areas)
@@ -354,7 +344,11 @@ def detect_damages_accurate(image_array, threshold=0.6):
     return damages, dark_percentage, edge_percentage, brightness
 
 def process_video(video_path, threshold):
-    """Process video frame by frame and return first frame with detection."""
+    """Process video frame by frame (requires OpenCV)."""
+    if not CV2_AVAILABLE:
+        st.error("OpenCV not installed. Cannot process video.")
+        return None, []
+
     cap = cv2.VideoCapture(video_path)
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -417,15 +411,13 @@ with st.sidebar:
     send_email = st.checkbox("Send Email alert (SMTP)", value=False)
 
     st.markdown("---")
-    st.header("📊 System Stats")
     st.info(f"""
     **Capabilities:**
     - ✅ Pothole & Crack detection
     - ✅ Auto GPS
     - ✅ Object detection (vehicle, tree, person, sky)
-    - ✅ Video processing
-    - ✅ Heatmap (coming soon)
-    - ✅ Database storage
+    - ✅ Video processing (requires OpenCV)
+    - ✅ Database storage (Supabase)
     - ✅ Alerts (SMS/Email)
     - ✅ PDF/CSV reports
     """)
@@ -436,7 +428,6 @@ with st.sidebar:
 # Main area with tabs
 tab1, tab2, tab3, tab4 = st.tabs(["Detection", "Map & Heatmap", "History & Reports", "Video"])
 
-# ------------------------------------------------------------
 # Tab 1: Detection
 with tab1:
     if uploaded_file is not None and media_type == "Image":
@@ -473,7 +464,7 @@ with tab1:
                 damages, dark_pct, edge_pct, brightness = detect_damages_accurate(image_array, detection_threshold)
                 objects = detect_general_objects(image_array)
 
-            # Show image analysis metrics
+            # Image metrics
             with st.expander("📊 Image Metrics"):
                 st.write(f"🌞 Brightness: {brightness:.0f}/255")
                 st.write(f"⚫ Dark area: {dark_pct:.1%}")
@@ -483,20 +474,12 @@ with tab1:
                 elif brightness < 80:
                     st.warning("🌙 Low light – detection may be affected")
 
-            # Road damage section
+            # Road damage
             if damages:
                 st.markdown("### 🚨 Road Damage Detected")
                 for d in damages:
-                    if d['severity'] == 'High':
-                        bg = "#ffebee"
-                        border = "#dc3545"
-                    elif d['severity'] == 'Medium':
-                        bg = "#fff3cd"
-                        border = "#ffc107"
-                    else:
-                        bg = "#d4edda"
-                        border = "#28a745"
-
+                    bg = "#ffebee" if d['severity'] == 'High' else "#fff3cd" if d['severity'] == 'Medium' else "#d4edda"
+                    border = "#dc3545" if d['severity'] == 'High' else "#ffc107" if d['severity'] == 'Medium' else "#28a745"
                     st.markdown(f"""
                     <div style='background-color:{bg}; padding:12px; border-radius:10px; margin:8px 0; border-left:5px solid {border};'>
                         <h3>{d['icon']} {d['type'].upper()}</h3>
@@ -506,12 +489,11 @@ with tab1:
                     </div>
                     """, unsafe_allow_html=True)
 
-                # Urgent alert
-                high_sev = any(d['severity'] == 'High' for d in damages)
-                if high_sev:
+                # Alert
+                if any(d['severity'] == 'High' for d in damages):
                     st.warning("🚨 URGENT: High severity damage! Alert sent.")
                     if send_sms:
-                        msg = f"URGENT: {len(damages)} road damages (pothole) at {location_display}. Immediate repair."
+                        msg = f"URGENT: {len(damages)} road damages at {location_display}. Immediate repair."
                         send_sms_alert(msg)
                     if send_email:
                         send_email_alert("Road Damage Alert", msg)
@@ -526,51 +508,55 @@ with tab1:
                     else:
                         st.write(f"🟢 **Monitor** monthly")
 
-                # Store in database
-                if damages:
-                    record = {
-                        'type': damages[0]['type'],
-                        'severity': damages[0]['severity'],
-                        'confidence': damages[0]['confidence'],
-                        'latitude': lat if lat else 0,
-                        'longitude': lon if lon else 0,
-                        'location_name': location_name if 'location_name' in locals() else location_display,
-                        'image_size': f"{image.size[0]}x{image.size[1]}",
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    save_to_supabase(record)
+                # Save to database
+                record = {
+                    'type': damages[0]['type'],
+                    'severity': damages[0]['severity'],
+                    'confidence': damages[0]['confidence'],
+                    'latitude': lat if lat else 0,
+                    'longitude': lon if lon else 0,
+                    'location_name': location_name if 'location_name' in locals() else location_display,
+                    'image_size': f"{image.size[0]}x{image.size[1]}",
+                    'timestamp': datetime.now().isoformat()
+                }
+                save_to_supabase(record)
 
                 # Confidence meter
                 avg_conf = sum(d['confidence'] for d in damages)/len(damages)
                 st.progress(avg_conf)
                 st.caption(f"Average confidence: {avg_conf:.1%}")
 
+                # Add to session history
+                st.session_state.detection_history.append({
+                    'timestamp': datetime.now(),
+                    'damages': len(damages),
+                    'location': location_display,
+                    'image_name': uploaded_file.name,
+                    'confidence': avg_conf
+                })
             else:
                 st.markdown("""
                 <div class='good-card'>
                     <h2>✅ NO ROAD DAMAGE DETECTED</h2>
                     <p>Road condition appears GOOD!</p>
-                    <p>Image analysis complete.</p>
                 </div>
                 """, unsafe_allow_html=True)
 
-            # General objects section
+            # General objects
             if objects:
                 st.markdown("### 📦 Other Objects in Image")
                 for obj in objects:
                     st.markdown(f"<div class='object-card'><b>{obj['icon']} {obj['type'].upper()}</b> - {obj['confidence']:.0%} confidence</div>", unsafe_allow_html=True)
 
-            # Export buttons
+            # Export
             if damages:
                 st.markdown("---")
                 col_a, col_b = st.columns(2)
                 with col_a:
-                    # CSV export
                     df = pd.DataFrame([{'Type': d['type'], 'Confidence': f"{d['confidence']:.1%}", 'Severity': d['severity'], 'Location': location_display} for d in damages])
                     csv = df.to_csv(index=False)
                     st.download_button("📥 Download CSV", csv, f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", "text/csv")
                 with col_b:
-                    # PDF export
                     if REPORTLAB_AVAILABLE:
                         pdf_file = generate_pdf_report(damages, location_display, f"{image.size[0]}x{image.size[1]}")
                         if pdf_file:
@@ -580,32 +566,32 @@ with tab1:
                         st.info("PDF generation requires reportlab")
 
     elif uploaded_file is not None and media_type == "Video":
-        st.info("Processing video...")
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp:
-            tmp.write(uploaded_file.read())
-            video_path = tmp.name
-
-        processed_frame, damages = process_video(video_path, detection_threshold)
-
-        if processed_frame is not None:
-            st.image(processed_frame, caption="First detected frame", use_container_width=True)
-            if damages:
-                st.success(f"✅ Detected {len(damages)} damages in video")
-                for d in damages:
-                    st.write(f"{d['icon']} {d['type']} – {d['confidence']:.1%} – {d['severity']}")
-            else:
-                st.info("No damages detected in video.")
+        if not CV2_AVAILABLE:
+            st.error("OpenCV is not installed. Video processing is disabled. Install opencv-python-headless.")
         else:
-            st.warning("No damages detected in video.")
-        os.unlink(video_path)
+            st.info("Processing video...")
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp:
+                tmp.write(uploaded_file.read())
+                video_path = tmp.name
 
-# ------------------------------------------------------------
-# Tab 2: Map & Heatmap (simulated – requires location data)
+            processed_frame, damages = process_video(video_path, detection_threshold)
+
+            if processed_frame is not None:
+                st.image(processed_frame, caption="First detected frame", use_container_width=True)
+                if damages:
+                    st.success(f"✅ Detected {len(damages)} damages in video")
+                    for d in damages:
+                        st.write(f"{d['icon']} {d['type']} – {d['confidence']:.1%} – {d['severity']}")
+                else:
+                    st.info("No damages detected in video.")
+            else:
+                st.warning("No damages detected in video.")
+            os.unlink(video_path)
+
+# Tab 2: Map & Heatmap
 with tab2:
-    st.subheader("🗺️ Damage Heatmap (Simulated)")
+    st.subheader("🗺️ Damage Heatmap")
     st.write("This would show real damage clusters using stored data from Supabase.")
-
-    # If we have stored data, we could plot a heatmap. Here we show a placeholder.
     st.markdown("""
     <div style='background-color:#f0f2f6; padding:20px; border-radius:10px; text-align:center'>
         <p>📍 <b>Heatmap coming soon</b> – once you have multiple records in the database,<br>
@@ -613,8 +599,6 @@ with tab2:
         <p>🔗 <a href='https://www.google.com/maps' target='_blank'>View on Google Maps</a></p>
     </div>
     """, unsafe_allow_html=True)
-
-    # Option to show current damage location if available
     if 'lat' in locals() and lat and lon:
         st.markdown(f"""
         <div style='background-color:#e8f5e9; padding:10px; border-radius:10px; margin-top:10px;'>
@@ -623,7 +607,6 @@ with tab2:
         </div>
         """, unsafe_allow_html=True)
 
-# ------------------------------------------------------------
 # Tab 3: History & Reports
 with tab3:
     st.subheader("📜 Detection History (Session)")
@@ -636,17 +619,14 @@ with tab3:
     st.subheader("📊 Database Records (Supabase)")
     if SUPABASE_AVAILABLE and st.session_state.db_connected:
         st.info("Connected to Supabase. Records are stored there.")
-        # Optionally fetch and show recent records
     else:
         st.warning("Supabase not configured or not connected. Records are only in session.")
 
-# ------------------------------------------------------------
-# Tab 4: Video (redundant, but left for clarity)
+# Tab 4: Video (redundant)
 with tab4:
     st.subheader("🎥 Video Processing")
     st.write("Upload a video in the Detection tab.")
 
-# ------------------------------------------------------------
 # Footer
 st.markdown("---")
 st.markdown("""
